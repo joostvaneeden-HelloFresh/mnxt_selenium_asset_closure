@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = os.getenv("MNXT_BASE_URL", "https://hellofresh-qa.mobilenext.eu")
 LOGIN_URL = f"{BASE_URL}/login"
+ASSET_MONITOR_URL = f"{BASE_URL}/asset-monitor/assets"
 
 WAIT = 15
 SHORT = 2
@@ -103,6 +104,9 @@ class MNXTSession:
         WebDriverWait(self.d, WAIT).until(EC.url_changes(LOGIN_URL))
         time.sleep(3)
         log.info("Ingelogd")
+        log.info("Navigeer naar Asset Monitor")
+        self.d.get(ASSET_MONITOR_URL)
+        time.sleep(3)
 
     # ------------------------------------------------------------------
     # Asset Monitor — sorteer op Active Damages hoog→laag
