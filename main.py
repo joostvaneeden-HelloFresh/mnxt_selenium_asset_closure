@@ -101,6 +101,7 @@ class MNXTSession:
         btn = klikbaar(self.d, (By.CSS_SELECTOR, "button[type='submit']"))
         js_click(self.d, btn)
         WebDriverWait(self.d, WAIT).until(EC.url_changes(LOGIN_URL))
+        time.sleep(3)
         log.info("Ingelogd")
 
     # ------------------------------------------------------------------
