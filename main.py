@@ -269,20 +269,22 @@ class MNXTSession:
         wacht_op_angular(self.d)
         log.info("[%s] Pagina: %s", referentie, self.d.current_url)
 
-        # Klik de Damages tab binnen de asset-detail tab-groep (niet de top-navigatie)
-        # De asset-detail tabs staan in een mat-tab-group in de content, niet in de sidebar
+        # Klik de Damages tab in het asset-detail (niet de top-navigatie)
+        # Er zijn twee "Damages" tabs: top-nav (eerste) en asset-detail (tweede/laatste)
         try:
-            tab = klikbaar(self.d, (
-                By.XPATH,
-                "//mat-tab-group//*[@role='tab' and contains(.,'Damage')]"
-                " | //mat-tab-header//*[@role='tab' and contains(.,'Damage')]"
-                " | //div[contains(@class,'mat-tab-group')]//*[@role='tab' and contains(.,'Damage')]"
-            ))
-            log.info("[%s] Damages tab gevonden: '%s'", referentie, tab.text.strip())
+            alle_damage_tabs = WebDriverWait(self.d, WAIT).until(
+                EC.presence_of_all_elements_located(
+                    (By.XPATH, "//*[@role='tab' and contains(.,'Damage')]")
+                )
+            )
+            log.info("[%s] %d Damages tab(s) gevonden", referentie, len(alle_damage_tabs))
+            # Pak de laatste — dat is de asset-detail tab, niet de top-navigatie
+            tab = alle_damage_tabs[-1]
+            log.info("[%s] Klik tab: '%s'", referentie, tab.text.strip())
             js_click(self.d, tab)
             wacht_op_angular(self.d)
         except TimeoutException:
-            log.warning("[%s] Damages tab niet gevonden in asset detail", referentie)
+            log.warning("[%s] Damages tab niet gevonden", referentie)
             return 0
 
         gesloten = 0
