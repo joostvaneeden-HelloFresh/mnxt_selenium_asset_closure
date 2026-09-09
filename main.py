@@ -259,25 +259,30 @@ class MNXTSession:
     # ------------------------------------------------------------------
 
     def _verwerk_damages_van_asset(self, referentie: str) -> int:
-        # Wacht tot asset detail pagina geladen is
+        # Wacht tot we op de asset-detailpagina zijn (URL bevat asset ID, niet alleen /assets)
+        try:
+            WebDriverWait(self.d, WAIT).until(
+                lambda d: "/assets/" in d.current_url or "/asset/" in d.current_url
+            )
+        except TimeoutException:
+            pass
         wacht_op_angular(self.d)
-
-        # Log huidige URL
         log.info("[%s] Pagina: %s", referentie, self.d.current_url)
 
-        # Klik op de Damages tab — breed zoeken
+        # Klik de Damages tab binnen de asset-detail tab-groep (niet de top-navigatie)
+        # De asset-detail tabs staan in een mat-tab-group in de content, niet in de sidebar
         try:
             tab = klikbaar(self.d, (
                 By.XPATH,
-                "//*[@role='tab' and contains(.,'Damage')]"
-                " | //div[contains(@class,'tab') and contains(.,'Damage')]"
-                " | //span[contains(@class,'tab') and contains(.,'Damage')]"
+                "//mat-tab-group//*[@role='tab' and contains(.,'Damage')]"
+                " | //mat-tab-header//*[@role='tab' and contains(.,'Damage')]"
+                " | //div[contains(@class,'mat-tab-group')]//*[@role='tab' and contains(.,'Damage')]"
             ))
-            log.info("[%s] Damages tab gevonden: %s", referentie, tab.text)
+            log.info("[%s] Damages tab gevonden: '%s'", referentie, tab.text.strip())
             js_click(self.d, tab)
             wacht_op_angular(self.d)
         except TimeoutException:
-            log.warning("[%s] Damages tab niet gevonden", referentie)
+            log.warning("[%s] Damages tab niet gevonden in asset detail", referentie)
             return 0
 
         gesloten = 0
