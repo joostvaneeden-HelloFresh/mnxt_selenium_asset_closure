@@ -153,7 +153,9 @@ class MNXTSession:
                 "//*[self::th or self::mat-header-cell][contains(.,'Active')]"
             ), timeout=10)
             js_click(self.d, header)
-            log.info("Gesorteerd op Active Damages")
+            time.sleep(SHORT)
+            js_click(self.d, header)  # tweede klik: hoog→laag
+            log.info("Gesorteerd op Active Damages (hoog→laag)")
             time.sleep(SHORT)
         except TimeoutException:
             log.warning("Kolomkop 'Active Damages' niet gevonden, ga door zonder sortering")
