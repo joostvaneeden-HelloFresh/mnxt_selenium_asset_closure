@@ -45,9 +45,9 @@ WAIT_TIMEOUT = 15
 SHORT_WAIT = 3
 
 # Login pagina selectors
-SEL_USERNAME_INPUT = (By.ID, "username")          # TODO: pas aan
-SEL_PASSWORD_INPUT = (By.ID, "password")          # TODO: pas aan
-SEL_LOGIN_BUTTON = (By.CSS_SELECTOR, "button[type='submit']")  # TODO: pas aan
+SEL_USERNAME_INPUT = (By.CSS_SELECTOR, "input[autocomplete='email']")
+SEL_PASSWORD_INPUT = (By.CSS_SELECTOR, "input[type='password']")
+SEL_LOGIN_BUTTON = (By.CSS_SELECTOR, "button[type='submit']")
 
 # Navigatie naar assets / kentekens
 SEL_ASSETS_MENU = (By.LINK_TEXT, "Assets")        # TODO: pas aan op menu-tekst
