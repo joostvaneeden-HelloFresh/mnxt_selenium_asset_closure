@@ -109,14 +109,22 @@ class MNXTSession:
     # ------------------------------------------------------------------
 
     def sorteer_op_active_damages(self):
-        log.info("Sorteer op Active Damages")
-        header = klikbaar(self.d, (
-            By.XPATH,
-            "//th[.//text()[contains(.,'Active') and contains(.,'Damages')] "
-            "or .//span[contains(text(),'Active Damages')]]"
-        ))
-        js_click(self.d, header)
+        log.info("Wacht op asset tabel...")
+        # Wacht tot de tabel geladen is
+        wacht(self.d, (By.CSS_SELECTOR, "table tbody tr"))
         time.sleep(SHORT)
+        log.info("Sorteer op Active Damages")
+        # Zoek de kolomkop die 'Active' bevat (staat op 2 regels in de UI)
+        try:
+            header = klikbaar(self.d, (
+                By.XPATH,
+                "//th[contains(.,'Active')]"
+            ))
+            js_click(self.d, header)
+            log.info("Gesorteerd op Active Damages")
+            time.sleep(SHORT)
+        except TimeoutException:
+            log.warning("Kolomkop 'Active Damages' niet gevonden, ga door zonder sortering")
 
     # ------------------------------------------------------------------
     # Loop door alle assets
