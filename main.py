@@ -146,7 +146,10 @@ class MNXTSession:
         WebDriverWait(self.d, 30).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr"))
         )
-        log.info("Tabel geladen. Sorteer op Active Damages...")
+        log.info("Tabel geladen. Zoek kolomkoppen...")
+        headers_gevonden = self.d.find_elements(By.XPATH, "//*[self::th or self::mat-header-cell]")
+        for h in headers_gevonden:
+            log.info("  Kolomkop: '%s'", h.text.strip().replace("\n", " "))
         try:
             header = klikbaar(self.d, (
                 By.XPATH,
