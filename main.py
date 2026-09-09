@@ -200,21 +200,24 @@ class MNXTSession:
         log.info("Klaar — %d assets verwerkt", verwerkt)
 
     def _haal_asset_rijen_met_damages(self) -> list:
+        wacht_op_angular(self.d)
         try:
-            rijen = WebDriverWait(self.d, WAIT).until(
+            rijen = WebDriverWait(self.d, 30).until(
                 EC.presence_of_all_elements_located(
                     (By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr")
                 )
             )
         except TimeoutException:
+            log.warning("Geen tabelrijen gevonden na 30s")
             return []
 
+        log.info("%d rijen gevonden in tabel", len(rijen))
         resultaat = []
         for rij in rijen:
             try:
                 cellen = rij.find_elements(By.CSS_SELECTOR, "td, mat-cell")
                 cel_teksten = [c.text.strip() for c in cellen]
-                log.info("Rij cellen: %s", cel_teksten)
+                log.info("Rij: %s", cel_teksten)
                 for cel in cellen:
                     tekst = cel.text.strip()
                     if tekst.isdigit() and int(tekst) > 0:
@@ -222,7 +225,7 @@ class MNXTSession:
                         break
             except StaleElementReferenceException:
                 continue
-        log.info("Assets met active damages gevonden: %d", len(resultaat))
+        log.info("Assets met active damages: %d", len(resultaat))
         return resultaat
 
     def _lees_referentie(self, rij) -> str:
