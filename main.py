@@ -122,17 +122,30 @@ class MobileNXTSession:
         from selenium.webdriver.common.keys import Keys
         log.info("Navigeer naar loginpagina: %s", LOGIN_URL)
         self.driver.get(LOGIN_URL)
-        wait_for(self.driver, SEL_USERNAME_INPUT).send_keys(username)
-        pw_field = self.driver.find_element(*SEL_PASSWORD_INPUT)
-        pw_field.send_keys(password)
-        # Probeer eerst JS-click, dan Enter als fallback
-        try:
-            btn = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
-                EC.element_to_be_clickable(SEL_LOGIN_BUTTON)
+
+        def vul_in(selector, waarde):
+            el = wait_for(self.driver, selector)
+            el.click()
+            self.driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));"
+                "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
+                el, waarde
             )
-            self.driver.execute_script("arguments[0].click();", btn)
-        except Exception:
-            pw_field.send_keys(Keys.RETURN)
+            # Stuur ook een echte toetsaanslag zodat Angular validators activeren
+            el.send_keys(" ")
+            el.send_keys(Keys.BACK_SPACE)
+            return el
+
+        vul_in(SEL_USERNAME_INPUT, username)
+        pw_field = vul_in(SEL_PASSWORD_INPUT, password)
+
+        time.sleep(1)
+        btn = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+            EC.element_to_be_clickable(SEL_LOGIN_BUTTON)
+        )
+        self.driver.execute_script("arguments[0].click();", btn)
+
         WebDriverWait(self.driver, WAIT_TIMEOUT).until(
             EC.url_changes(LOGIN_URL)
         )
