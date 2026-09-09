@@ -275,7 +275,7 @@ class MNXTSession:
         try:
             rijen = WebDriverWait(self.d, SHORT).until(
                 EC.presence_of_all_elements_located(
-                    (By.CSS_SELECTOR, "table tbody tr")
+                    (By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr")
                 )
             )
         except TimeoutException:
