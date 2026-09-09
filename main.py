@@ -231,9 +231,14 @@ class MNXTSession:
 
     def _lees_referentie(self, rij) -> str:
         try:
-            return rij.find_element(By.CSS_SELECTOR, "td:first-child").text.strip()
+            cellen = rij.find_elements(By.CSS_SELECTOR, "td, mat-cell")
+            for cel in cellen:
+                tekst = cel.text.strip()
+                if tekst:
+                    return tekst
         except Exception:
-            return "onbekend"
+            pass
+        return "onbekend"
 
     def _volgende_pagina(self) -> bool:
         try:
@@ -254,16 +259,23 @@ class MNXTSession:
     # ------------------------------------------------------------------
 
     def _verwerk_damages_van_asset(self, referentie: str) -> int:
-        # Klik op de Damages tab
+        # Wacht tot asset detail pagina geladen is
+        wacht_op_angular(self.d)
+
+        # Log huidige URL
+        log.info("[%s] Pagina: %s", referentie, self.d.current_url)
+
+        # Klik op de Damages tab — breed zoeken
         try:
             tab = klikbaar(self.d, (
                 By.XPATH,
-                "//div[contains(@class,'mat-tab-label') and contains(.,'Damages')]"
-                " | //a[contains(@class,'mat-tab') and contains(.,'Damages')]"
-                " | //*[@role='tab' and contains(.,'Damages')]"
+                "//*[@role='tab' and contains(.,'Damage')]"
+                " | //div[contains(@class,'tab') and contains(.,'Damage')]"
+                " | //span[contains(@class,'tab') and contains(.,'Damage')]"
             ))
+            log.info("[%s] Damages tab gevonden: %s", referentie, tab.text)
             js_click(self.d, tab)
-            time.sleep(SHORT)
+            wacht_op_angular(self.d)
         except TimeoutException:
             log.warning("[%s] Damages tab niet gevonden", referentie)
             return 0
