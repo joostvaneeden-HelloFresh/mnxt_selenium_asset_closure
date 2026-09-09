@@ -119,12 +119,20 @@ class MobileNXTSession:
     # ------------------------------------------------------------------
 
     def login(self, username: str, password: str):
+        from selenium.webdriver.common.keys import Keys
         log.info("Navigeer naar loginpagina: %s", LOGIN_URL)
         self.driver.get(LOGIN_URL)
         wait_for(self.driver, SEL_USERNAME_INPUT).send_keys(username)
-        self.driver.find_element(*SEL_PASSWORD_INPUT).send_keys(password)
-        click(self.driver, SEL_LOGIN_BUTTON)
-        # Wacht tot pagina geladen is (URL verandert na login)
+        pw_field = self.driver.find_element(*SEL_PASSWORD_INPUT)
+        pw_field.send_keys(password)
+        # Probeer eerst JS-click, dan Enter als fallback
+        try:
+            btn = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.element_to_be_clickable(SEL_LOGIN_BUTTON)
+            )
+            self.driver.execute_script("arguments[0].click();", btn)
+        except Exception:
+            pw_field.send_keys(Keys.RETURN)
         WebDriverWait(self.driver, WAIT_TIMEOUT).until(
             EC.url_changes(LOGIN_URL)
         )
