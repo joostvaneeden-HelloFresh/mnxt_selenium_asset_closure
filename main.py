@@ -113,17 +113,18 @@ class MNXTSession:
     # ------------------------------------------------------------------
 
     def sorteer_op_active_damages(self):
-        log.info("Wacht op asset tabel...")
-        # Wacht tot de tabel geladen is
-        wacht(self.d, (By.CSS_SELECTOR, "table tbody tr"))
+        log.info("Wacht op asset tabel (max 30s)...")
+        # Angular Material tabel — wacht op rijen
+        WebDriverWait(self.d, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr"))
+        )
         time.sleep(SHORT)
-        log.info("Sorteer op Active Damages")
-        # Zoek de kolomkop die 'Active' bevat (staat op 2 regels in de UI)
+        log.info("Tabel geladen. Sorteer op Active Damages...")
         try:
             header = klikbaar(self.d, (
                 By.XPATH,
-                "//th[contains(.,'Active')]"
-            ))
+                "//*[self::th or self::mat-header-cell][contains(.,'Active')]"
+            ), timeout=10)
             js_click(self.d, header)
             log.info("Gesorteerd op Active Damages")
             time.sleep(SHORT)
@@ -170,7 +171,7 @@ class MNXTSession:
         try:
             rijen = WebDriverWait(self.d, WAIT).until(
                 EC.presence_of_all_elements_located(
-                    (By.CSS_SELECTOR, "table tbody tr")
+                    (By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr")
                 )
             )
         except TimeoutException:
