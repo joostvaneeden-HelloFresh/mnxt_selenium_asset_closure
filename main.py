@@ -212,8 +212,9 @@ class MNXTSession:
         resultaat = []
         for rij in rijen:
             try:
-                # Kolom "Active Damages" — zoek cel met getal > 0
-                cellen = rij.find_elements(By.CSS_SELECTOR, "td")
+                cellen = rij.find_elements(By.CSS_SELECTOR, "td, mat-cell")
+                cel_teksten = [c.text.strip() for c in cellen]
+                log.info("Rij cellen: %s", cel_teksten)
                 for cel in cellen:
                     tekst = cel.text.strip()
                     if tekst.isdigit() and int(tekst) > 0:
@@ -221,6 +222,7 @@ class MNXTSession:
                         break
             except StaleElementReferenceException:
                 continue
+        log.info("Assets met active damages gevonden: %d", len(resultaat))
         return resultaat
 
     def _lees_referentie(self, rij) -> str:
