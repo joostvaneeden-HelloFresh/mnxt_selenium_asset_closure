@@ -1,6 +1,7 @@
 """
-MobileNXT Asset Closure Simulator
-Simuleert het sluiten van schades per kenteken in MobileNXT.
+MobileNXT Asset Damage Closer
+Logt in, sorteert assets op active damages (hoog→laag), en sluit
+alle damages met status New/Checked af op Resolved.
 
 Gebruik:
     pip install -r requirements.txt
@@ -18,10 +19,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import (
     TimeoutException,
     NoSuchElementException,
-    ElementClickInterceptedException,
+    StaleElementReferenceException,
 )
 
 load_dotenv()
@@ -33,252 +35,303 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Configuratie — pas selectors hieronder aan op basis van de echte MobileNXT UI
-# ---------------------------------------------------------------------------
-
 BASE_URL = os.getenv("MNXT_BASE_URL", "https://hellofresh-qa.mobilenext.eu")
 LOGIN_URL = f"{BASE_URL}/login"
 
-# Seleniumwaits (seconden)
-WAIT_TIMEOUT = 15
-SHORT_WAIT = 3
+WAIT = 15
+SHORT = 2
 
-# Login pagina selectors
-SEL_USERNAME_INPUT = (By.CSS_SELECTOR, "input[autocomplete='email']")
-SEL_PASSWORD_INPUT = (By.CSS_SELECTOR, "input[type='password']")
-SEL_LOGIN_BUTTON = (By.CSS_SELECTOR, "button[type='submit']")
-
-# Navigatie naar assets / kentekens
-SEL_ASSETS_MENU = (By.LINK_TEXT, "Assets")        # TODO: pas aan op menu-tekst
-SEL_ASSET_ROWS = (By.CSS_SELECTOR, "table tbody tr")  # TODO: rijen in asset-overzicht
-SEL_ASSET_KENTEKEN = (By.CSS_SELECTOR, "td:first-child")  # TODO: kolom met kenteken
-
-# Schade-pagina selectors
-SEL_SCHADES_TAB = (By.XPATH, "//a[contains(text(),'Schade') or contains(text(),'Damage')]")
-SEL_SCHADE_ROWS = (By.CSS_SELECTOR, ".damage-list tr, table.schades tbody tr")  # TODO
-SEL_SCHADE_OPEN_STATUS = (By.CSS_SELECTOR, "td.status")  # TODO: statuskolom
-SEL_SCHADE_OPEN_BTN = (By.CSS_SELECTOR, "a.schade-detail, a.damage-detail")  # TODO: detail-link
-SEL_SCHADE_SLUIT_BTN = (
-    By.XPATH,
-    "//button[contains(text(),'Sluit') or contains(text(),'Sluiten') "
-    "or contains(text(),'Close') or contains(text(),'Afsluiten')]",
-)
-SEL_CONFIRM_BTN = (
-    By.XPATH,
-    "//button[contains(text(),'Bevestig') or contains(text(),'Confirm') "
-    "or contains(text(),'OK') or contains(text(),'Ja')]",
-)
-
-# Status waarde die een open/actieve schade aangeeft
-OPEN_STATUS_TEXTS = {"open", "actief", "active", "in behandeling"}
-
-# ---------------------------------------------------------------------------
+# Statussen die we moeten sluiten
+TE_SLUITEN_STATUSSEN = {"new", "checked"}
 
 
-def make_driver(headless: bool = False) -> webdriver.Chrome:
+def make_driver() -> webdriver.Chrome:
     opts = Options()
-    if headless:
-        opts.add_argument("--headless=new")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1440,900")
-    # Gebruik systeembrede chromedriver als webdriver-manager faalt
     try:
         from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
-        return webdriver.Chrome(service=service, options=opts)
+        return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
     except Exception:
         return webdriver.Chrome(options=opts)
 
 
-def wait_for(driver: webdriver.Chrome, selector: tuple, timeout: int = WAIT_TIMEOUT):
+def wacht(driver, locator, timeout=WAIT):
     return WebDriverWait(driver, timeout).until(
-        EC.presence_of_element_located(selector)
+        EC.presence_of_element_located(locator)
     )
 
 
-def click(driver: webdriver.Chrome, selector: tuple, timeout: int = WAIT_TIMEOUT):
-    el = WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable(selector)
+def klikbaar(driver, locator, timeout=WAIT):
+    return WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable(locator)
     )
-    try:
-        el.click()
-    except ElementClickInterceptedException:
-        driver.execute_script("arguments[0].click();", el)
-    return el
 
 
-class MobileNXTSession:
+def js_click(driver, el):
+    driver.execute_script("arguments[0].click();", el)
+
+
+class MNXTSession:
     def __init__(self, driver: webdriver.Chrome):
-        self.driver = driver
-        self.wait = WebDriverWait(driver, WAIT_TIMEOUT)
+        self.d = driver
 
     # ------------------------------------------------------------------
     # Login
     # ------------------------------------------------------------------
 
     def login(self, username: str, password: str):
-        log.info("Navigeer naar loginpagina: %s", LOGIN_URL)
-        self.driver.get(LOGIN_URL)
+        log.info("Login: %s", LOGIN_URL)
+        self.d.get(LOGIN_URL)
 
-        wait_for(self.driver, SEL_USERNAME_INPUT).send_keys(username)
-        self.driver.find_element(*SEL_PASSWORD_INPUT).send_keys(password)
+        def vul_in(sel, waarde):
+            el = wacht(self.d, sel)
+            el.click()
+            self.d.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));"
+                "arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",
+                el, waarde
+            )
+            el.send_keys(" ")
+            el.send_keys(Keys.BACK_SPACE)
 
-        time.sleep(2)
-
-        btn = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
-            EC.element_to_be_clickable(SEL_LOGIN_BUTTON)
-        )
-        self.driver.execute_script("arguments[0].click();", btn)
-
-        WebDriverWait(self.driver, WAIT_TIMEOUT).until(
-            EC.url_changes(LOGIN_URL)
-        )
-        log.info("Ingelogd als %s", username)
-
-    # ------------------------------------------------------------------
-    # Asset/kenteken navigatie
-    # ------------------------------------------------------------------
-
-    def haal_kentekens_op(self) -> list[str]:
-        """
-        Haal alle kentekens op uit het asset-overzicht.
-        Wordt alleen gebruikt als KENTEKENS env leeg is.
-        """
-        log.info("Navigeer naar assets overzicht")
-        click(self.driver, SEL_ASSETS_MENU)
-        rijen = self.wait.until(
-            EC.presence_of_all_elements_located(SEL_ASSET_ROWS)
-        )
-        kentekens = []
-        for rij in rijen:
-            try:
-                kenteken = rij.find_element(*SEL_ASSET_KENTEKEN).text.strip()
-                if kenteken:
-                    kentekens.append(kenteken)
-            except NoSuchElementException:
-                continue
-        log.info("Gevonden kentekens: %s", kentekens)
-        return kentekens
-
-    def navigeer_naar_asset(self, kenteken: str):
-        """Zoek kenteken in de lijst en klik erop."""
-        log.info("Navigeer naar asset: %s", kenteken)
-        rijen = self.wait.until(
-            EC.presence_of_all_elements_located(SEL_ASSET_ROWS)
-        )
-        for rij in rijen:
-            try:
-                cel = rij.find_element(*SEL_ASSET_KENTEKEN)
-                if kenteken.upper() in cel.text.upper():
-                    cel.click()
-                    time.sleep(SHORT_WAIT)
-                    return
-            except NoSuchElementException:
-                continue
-        raise RuntimeError(f"Kenteken niet gevonden in lijst: {kenteken}")
+        vul_in((By.CSS_SELECTOR, "input[autocomplete='email']"), username)
+        vul_in((By.CSS_SELECTOR, "input[type='password']"), password)
+        time.sleep(1)
+        btn = klikbaar(self.d, (By.CSS_SELECTOR, "button[type='submit']"))
+        js_click(self.d, btn)
+        WebDriverWait(self.d, WAIT).until(EC.url_changes(LOGIN_URL))
+        log.info("Ingelogd")
 
     # ------------------------------------------------------------------
-    # Schade sluiten
+    # Asset Monitor — sorteer op Active Damages hoog→laag
     # ------------------------------------------------------------------
 
-    def open_schades_tab(self):
-        """Navigeer naar de schades-tab op de asset-detailpagina."""
-        try:
-            click(self.driver, SEL_SCHADES_TAB)
-            time.sleep(SHORT_WAIT)
-        except TimeoutException:
-            log.warning("Schades-tab niet gevonden — mogelijk al op de juiste pagina")
+    def sorteer_op_active_damages(self):
+        log.info("Sorteer op Active Damages")
+        header = klikbaar(self.d, (
+            By.XPATH,
+            "//th[.//text()[contains(.,'Active') and contains(.,'Damages')] "
+            "or .//span[contains(text(),'Active Damages')]]"
+        ))
+        js_click(self.d, header)
+        time.sleep(SHORT)
 
-    def sluit_alle_open_schades(self, kenteken: str) -> int:
-        """Sluit alle open schades voor het huidige asset. Geeft aantal gesloten terug."""
-        gesloten = 0
+    # ------------------------------------------------------------------
+    # Loop door alle assets
+    # ------------------------------------------------------------------
+
+    def verwerk_alle_assets(self):
+        verwerkt = 0
         while True:
-            schades = self._haal_open_schades()
-            if not schades:
-                log.info("[%s] Geen open schades meer", kenteken)
+            rijen = self._haal_asset_rijen_met_damages()
+            if not rijen:
+                log.info("Geen assets meer met active damages")
                 break
-            log.info("[%s] %d open schade(s) gevonden", kenteken, len(schades))
-            # Klik op de eerste open schade
-            try:
-                schades[0].click()
-                time.sleep(SHORT_WAIT)
-            except Exception as e:
-                log.error("[%s] Kan schade niet openen: %s", kenteken, e)
-                break
-            # Sluit de schade
-            if self._sluit_schade(kenteken):
-                gesloten += 1
-            else:
-                log.warning("[%s] Kon schade niet sluiten, stop loop", kenteken)
-                break
-        return gesloten
+            log.info("%d asset(s) met active damages op deze pagina", len(rijen))
 
-    def _haal_open_schades(self) -> list:
-        """Geeft lijst van klikbare elementen voor open schades terug."""
+            # Verwerk altijd de eerste rij opnieuw (na terugkeer refresht de lijst)
+            for i in range(len(rijen)):
+                rijen = self._haal_asset_rijen_met_damages()
+                if not rijen:
+                    break
+                rij = rijen[0]
+                referentie = self._lees_referentie(rij)
+                log.info("─" * 50)
+                log.info("Asset: %s", referentie)
+                js_click(self.d, rij)
+                time.sleep(SHORT)
+                gesloten = self._verwerk_damages_van_asset(referentie)
+                log.info("[%s] %d damage(s) gesloten", referentie, gesloten)
+                self.d.back()
+                time.sleep(SHORT)
+                verwerkt += 1
+
+            # Controleer of er een volgende pagina is
+            if not self._volgende_pagina():
+                break
+
+        log.info("Klaar — %d assets verwerkt", verwerkt)
+
+    def _haal_asset_rijen_met_damages(self) -> list:
         try:
-            rijen = WebDriverWait(self.driver, SHORT_WAIT).until(
-                EC.presence_of_all_elements_located(SEL_SCHADE_ROWS)
+            rijen = WebDriverWait(self.d, WAIT).until(
+                EC.presence_of_all_elements_located(
+                    (By.CSS_SELECTOR, "table tbody tr")
+                )
             )
         except TimeoutException:
             return []
 
-        open_schades = []
+        resultaat = []
         for rij in rijen:
             try:
-                status_el = rij.find_element(*SEL_SCHADE_OPEN_STATUS)
-                if status_el.text.strip().lower() in OPEN_STATUS_TEXTS:
-                    try:
-                        link = rij.find_element(*SEL_SCHADE_OPEN_BTN)
-                        open_schades.append(link)
-                    except NoSuchElementException:
-                        open_schades.append(rij)
-            except NoSuchElementException:
+                # Kolom "Active Damages" — zoek cel met getal > 0
+                cellen = rij.find_elements(By.CSS_SELECTOR, "td")
+                for cel in cellen:
+                    tekst = cel.text.strip()
+                    if tekst.isdigit() and int(tekst) > 0:
+                        resultaat.append(rij)
+                        break
+            except StaleElementReferenceException:
                 continue
-        return open_schades
+        return resultaat
 
-    def _sluit_schade(self, kenteken: str) -> bool:
-        """Klik op de sluit-knop en bevestig. Geeft True terug bij succes."""
+    def _lees_referentie(self, rij) -> str:
         try:
-            click(self.driver, SEL_SCHADE_SLUIT_BTN)
-            log.info("[%s] Sluit-knop geklikt", kenteken)
+            return rij.find_element(By.CSS_SELECTOR, "td:first-child").text.strip()
+        except Exception:
+            return "onbekend"
+
+    def _volgende_pagina(self) -> bool:
+        try:
+            volgende = self.d.find_element(
+                By.XPATH,
+                "//button[@aria-label='Next page' or contains(@class,'mat-paginator-navigation-next')]"
+            )
+            if volgende.is_enabled():
+                js_click(self.d, volgende)
+                time.sleep(SHORT)
+                return True
+        except NoSuchElementException:
+            pass
+        return False
+
+    # ------------------------------------------------------------------
+    # Asset detail: Damages tab
+    # ------------------------------------------------------------------
+
+    def _verwerk_damages_van_asset(self, referentie: str) -> int:
+        # Klik op de Damages tab
+        try:
+            tab = klikbaar(self.d, (
+                By.XPATH,
+                "//div[contains(@class,'mat-tab-label') and contains(.,'Damages')]"
+                " | //a[contains(@class,'mat-tab') and contains(.,'Damages')]"
+                " | //*[@role='tab' and contains(.,'Damages')]"
+            ))
+            js_click(self.d, tab)
+            time.sleep(SHORT)
         except TimeoutException:
-            log.error("[%s] Sluit-knop niet gevonden", kenteken)
+            log.warning("[%s] Damages tab niet gevonden", referentie)
+            return 0
+
+        gesloten = 0
+        # Blijf damage rijen ophalen en sluiten totdat er geen open meer zijn
+        while True:
+            damage_rijen = self._haal_open_damage_rijen()
+            if not damage_rijen:
+                break
+            log.info("[%s] Open damage gevonden, sluiten...", referentie)
+            if self._sluit_damage(damage_rijen[0], referentie):
+                gesloten += 1
+            else:
+                break
+        return gesloten
+
+    def _haal_open_damage_rijen(self) -> list:
+        """Geeft rijen terug waarvan de status New of Checked is."""
+        try:
+            rijen = WebDriverWait(self.d, SHORT).until(
+                EC.presence_of_all_elements_located(
+                    (By.CSS_SELECTOR, "table tbody tr")
+                )
+            )
+        except TimeoutException:
+            return []
+
+        open_rijen = []
+        for rij in rijen:
+            try:
+                # Zoek statusbadge in de rij
+                badges = rij.find_elements(
+                    By.XPATH,
+                    ".//span[contains(@class,'badge') or contains(@class,'chip') "
+                    "or contains(@class,'status') or contains(@class,'mat-chip')]"
+                )
+                for badge in badges:
+                    if badge.text.strip().lower() in TE_SLUITEN_STATUSSEN:
+                        open_rijen.append(rij)
+                        break
+                # Fallback: zoek op kleur (rode badge = New)
+                if not open_rijen or rij not in open_rijen:
+                    rode_els = rij.find_elements(
+                        By.XPATH,
+                        ".//*[contains(@style,'background') or contains(@class,'warn') "
+                        "or contains(@class,'danger') or contains(@class,'error')]"
+                    )
+                    for el in rode_els:
+                        if el.text.strip().lower() in TE_SLUITEN_STATUSSEN:
+                            open_rijen.append(rij)
+                            break
+            except StaleElementReferenceException:
+                continue
+        return open_rijen
+
+    def _sluit_damage(self, rij, referentie: str) -> bool:
+        # Klik op de rij om naar de damage detail pagina te gaan
+        try:
+            js_click(self.d, rij)
+            time.sleep(SHORT)
+        except Exception as e:
+            log.error("[%s] Kan damage rij niet klikken: %s", referentie, e)
             return False
 
-        # Bevestigingsdialoog (optioneel — sommige flows hebben dit niet)
+        # Klik Change Status
         try:
-            click(self.driver, SEL_CONFIRM_BTN, timeout=5)
-            log.info("[%s] Bevestigd", kenteken)
+            btn = klikbaar(self.d, (
+                By.XPATH,
+                "//button[contains(.,'Change Status') or contains(.,'Change status')]"
+            ))
+            js_click(self.d, btn)
+            time.sleep(SHORT)
         except TimeoutException:
-            log.debug("[%s] Geen bevestigingsdialoog nodig", kenteken)
+            log.error("[%s] 'Change Status' knop niet gevonden", referentie)
+            self.d.back()
+            time.sleep(SHORT)
+            return False
 
-        time.sleep(SHORT_WAIT)
-        return True
-
-    # ------------------------------------------------------------------
-    # Hoofd-loop
-    # ------------------------------------------------------------------
-
-    def verwerk_kentekens(self, kentekens: list[str]):
-        for i, kenteken in enumerate(kentekens, start=1):
-            log.info("─" * 50)
-            log.info("Verwerk %d/%d: %s", i, len(kentekens), kenteken)
+        # Selecteer "Resolved" in de dropdown
+        try:
+            dropdown = klikbaar(self.d, (By.CSS_SELECTOR, "mat-select, select"))
+            js_click(self.d, dropdown)
+            time.sleep(1)
+            resolved_optie = klikbaar(self.d, (
+                By.XPATH,
+                "//mat-option[contains(.,'Resolved')] | //option[contains(.,'Resolved')]"
+            ))
+            js_click(self.d, resolved_optie)
+            time.sleep(1)
+        except TimeoutException:
+            log.error("[%s] 'Resolved' optie niet gevonden", referentie)
+            # Sluit modal en ga terug
             try:
-                self.navigeer_naar_asset(kenteken)
-                self.open_schades_tab()
-                gesloten = self.sluit_alle_open_schades(kenteken)
-                log.info("[%s] Klaar — %d schade(s) gesloten", kenteken, gesloten)
-            except Exception as e:
-                log.error("[%s] Fout bij verwerking: %s", kenteken, e)
-                # Ga terug naar assets-overzicht en ga door
-                try:
-                    click(self.driver, SEL_ASSETS_MENU, timeout=5)
-                    time.sleep(SHORT_WAIT)
-                except Exception:
-                    self.driver.get(BASE_URL)
-                    time.sleep(SHORT_WAIT)
+                klikbaar(self.d, (By.XPATH, "//button[contains(.,'Cancel')]"))
+            except Exception:
+                pass
+            self.d.back()
+            time.sleep(SHORT)
+            return False
+
+        # Bevestig
+        try:
+            confirm = klikbaar(self.d, (
+                By.XPATH,
+                "//button[contains(.,'Confirm') or contains(.,'confirm')]"
+            ))
+            js_click(self.d, confirm)
+            time.sleep(SHORT)
+            log.info("[%s] Damage gesloten op Resolved", referentie)
+        except TimeoutException:
+            log.error("[%s] 'Confirm' knop niet gevonden", referentie)
+            self.d.back()
+            time.sleep(SHORT)
+            return False
+
+        # Ga terug naar de damages tab van het asset
+        self.d.back()
+        time.sleep(SHORT)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -288,32 +341,16 @@ class MobileNXTSession:
 def main():
     username = os.getenv("MNXT_USERNAME")
     password = os.getenv("MNXT_PASSWORD")
-    kentekens_env = os.getenv("KENTEKENS", "")
 
     if not username or not password:
-        raise SystemExit(
-            "Vul MNXT_USERNAME en MNXT_PASSWORD in (in .env of omgevingsvariabelen)"
-        )
+        raise SystemExit("Vul MNXT_USERNAME en MNXT_PASSWORD in (.env bestand)")
 
-    driver = make_driver(headless=False)
+    driver = make_driver()
     try:
-        sessie = MobileNXTSession(driver)
+        sessie = MNXTSession(driver)
         sessie.login(username, password)
-
-        if kentekens_env.strip():
-            kentekens = [k.strip() for k in kentekens_env.split(",") if k.strip()]
-            log.info("Kentekens uit .env: %s", kentekens)
-        else:
-            kentekens = sessie.haal_kentekens_op()
-
-        if not kentekens:
-            log.warning("Geen kentekens gevonden om te verwerken")
-            return
-
-        sessie.verwerk_kentekens(kentekens)
-        log.info("=" * 50)
-        log.info("Klaar. Alle kentekens verwerkt.")
-
+        sessie.sorteer_op_active_damages()
+        sessie.verwerk_alle_assets()
     finally:
         driver.quit()
 
