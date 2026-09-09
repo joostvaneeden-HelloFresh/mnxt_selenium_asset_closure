@@ -56,6 +56,34 @@ def make_driver() -> webdriver.Chrome:
         return webdriver.Chrome(options=opts)
 
 
+def wacht_op_angular(driver, timeout=30):
+    """Wacht tot Angular klaar is met laden en geen spinners meer zichtbaar zijn."""
+    # Wacht op document ready
+    WebDriverWait(driver, timeout).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    # Wacht tot Angular stable is
+    try:
+        WebDriverWait(driver, timeout).until(lambda d: d.execute_script("""
+            try {
+                var testabilities = window.getAllAngularTestabilities();
+                return testabilities.every(function(t) { return t.isStable(); });
+            } catch(e) { return true; }
+        """))
+    except Exception:
+        pass
+    # Wacht tot laad-spinner verdwijnt
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.invisibility_of_element_located(
+                (By.CSS_SELECTOR, "mat-progress-spinner, .loading, .spinner, mat-progress-bar")
+            )
+        )
+    except Exception:
+        pass
+    time.sleep(1)
+
+
 def wacht(driver, locator, timeout=WAIT):
     return WebDriverWait(driver, timeout).until(
         EC.presence_of_element_located(locator)
@@ -106,19 +134,18 @@ class MNXTSession:
         log.info("Ingelogd")
         log.info("Navigeer naar Asset Monitor")
         self.d.get(ASSET_MONITOR_URL)
-        time.sleep(3)
+        wacht_op_angular(self.d)
 
     # ------------------------------------------------------------------
     # Asset Monitor — sorteer op Active Damages hoog→laag
     # ------------------------------------------------------------------
 
     def sorteer_op_active_damages(self):
-        log.info("Wacht op asset tabel (max 30s)...")
-        # Angular Material tabel — wacht op rijen
+        log.info("Wacht op asset tabel...")
+        wacht_op_angular(self.d)
         WebDriverWait(self.d, 30).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "mat-row, tr.mat-row, tbody tr"))
         )
-        time.sleep(SHORT)
         log.info("Tabel geladen. Sorteer op Active Damages...")
         try:
             header = klikbaar(self.d, (
